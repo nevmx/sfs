@@ -1,9 +1,11 @@
 #include "sfs_api.h"
+#include "stdio.h"
+#include "stdlib.h"
 
-#DEFINE DISK_NAME ecse428disk
-#DEFINE N_DATA_BLOCKS 1024;
-#DEFINE B_SIZE 1014;
-#DEFINE N_INODES 200;
+#define DISK_NAME "ecse427disk"
+#define N_DATA_BLOCKS 1024
+#define B_SIZE 1024
+#define N_INODES 200
 
 typedef struct _inode_t {
     int size;
@@ -20,7 +22,27 @@ typedef struct _superblock_t {
 } superblock_t;
 
 void mkssfs(int fresh){
+    // If flag is not set, open an existing disk
     if (fresh == 0) {
+        if (init_disk(DISK_NAME, B_SIZE, N_DATA_BLOCKS + 2) != 0) {
+            return;
+        }
+
+        // Data structures to hold raw data from file
+        unsigned char *superblock_raw = (void*)calloc(B_SIZE, sizeof(unsigned char));
+        unsigned char *fbm_raw = (void*)calloc(B_SIZE, sizeof(unsigned char));
+
+        // Read superblock
+        if (read_blocks(0, 1, superblock_raw) != 1) {
+            printf("%s", "Superblock read error.\n");
+            return;
+        }
+
+        // Read FBM
+        if (read_blocks(N_DATA_BLOCKS + 1, 1, fbm_raw) != 1) {
+            printf("%s", "FBM read error.\n");
+            return;
+        }
         return;
     }
 
@@ -37,6 +59,7 @@ void mkssfs(int fresh){
     sb.bsize = B_SIZE;
     sb.n_blocks = N_DATA_BLOCKS;
     sb.n_inodes = N_INODES;
+    sb.root = root;
 
     // Create new free bitmap - all blocks are free
     unsigned char fbm[N_DATA_BLOCKS];
@@ -44,7 +67,11 @@ void mkssfs(int fresh){
         fbm[i] = 1;
     }
 
-    init_fresh_disk(DISK_NAME, B_SIZE, N_DATA_BLOCKS + 2);
+    // Initialize disk and write superblock and FBM
+    if (init_fresh_disk(DISK_NAME, B_SIZE, N_DATA_BLOCKS + 2) != 0) {
+        printf("%s", "Disk init error.\n");
+        return;
+    }
 }
 int ssfs_fopen(char *name){
     return 0;
@@ -68,6 +95,8 @@ int ssfs_remove(char *file){
     return 0;
 }
 
-void main() {
-    printf("%s", "Hello world!\n");
+void printBytes(unsigned char* data, int len) {
+    for (int i = 0; i < len; i++) {
+        printf("%x\n", data[i]);
+    }
 }
