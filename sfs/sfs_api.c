@@ -109,9 +109,6 @@ void mkssfs(int fresh){
     // Free allocated memory that is no longer needed
     free(superblock_raw);
     free(fbm_raw);
-
-    printBytes(superblock, 4);
-    printBytes(fbm+1023, 1);
 }
 int ssfs_fopen(char *name){
     return 0;
@@ -139,4 +136,11 @@ void printBytes(unsigned char* data, int len) {
     for (int i = 0; i < len; i++) {
         printf("%x\n", data[i]);
     }
+}
+
+void print_superblock(superblock_t *sb) {
+    printf("Magic: %02x%02x%02x%02x\n", sb->magic[0], sb->magic[1], sb->magic[2], sb->magic[3]);
+    printf("BSize: %i\n", sb->bsize);
+    printf("N of Blocks: %i\n", sb->n_blocks);
+    printf("N of i-nodes: %i\n", sb->n_inodes);
 }
