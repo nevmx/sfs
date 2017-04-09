@@ -160,33 +160,17 @@ void mkssfs(int fresh){
 int ssfs_fopen(char *name){
     print_dir();
 
-    // Update cache if needed
-    if (rootdir_stale != 0) {
-        read_root_dir();
-    }
-
-    // Update inode cache if needed
-    if (inodes_stale != 0) {
-        read_inodes();
-    }
-
     // Does the file already exist?
-    int file_exists = 0;
-    int32_t dirsize = inodes[0].size / 16;
-    for (int i = 0; i < dirsize; i++) {
-        if (strcmp(rootdir[i].filename, name) == 0) {
-            file_exists = 1;
-        }
-    }
+    int file_exists = find_file(name);
 
-    if (file_exists == 1) {
+    if (file_exists != -1) {
         printf("File %s exists already, will be opened.\n", name);
     } else {
         printf("File %s does not exist, will be created.\n", name);
     }
 
     // File does not exist, create it
-    if (file_exists == 0) {
+    if (file_exists == -1) {
         // 1. Find an empty i-node
         inode_t *free_inode = NULL;
 
@@ -200,7 +184,7 @@ int ssfs_fopen(char *name){
 
         if (free_inode == NULL) {
             printf("No more empty inodes!\n");
-            return;
+            return -1;
         } else {
             printf("Using inode #%i\n", i);
         }
@@ -209,9 +193,11 @@ int ssfs_fopen(char *name){
         free_inode->size = 0;
 
         // 3. Add to root directory
+        int32_t dirsize = inodes[0].size / 16;
         rootdir = (void*)realloc(rootdir, (dirsize + 1) * sizeof(direntry_t));
         strncpy(rootdir[dirsize].filename, name, 15);
         rootdir[dirsize].inode = i;
+        file_exists = i;
 
         // 4. Increment root dir size
         inodes[0].size += sizeof(direntry_t);
@@ -236,7 +222,30 @@ int ssfs_fread(int fileID, char *buf, int length){
     return 0;
 }
 int ssfs_remove(char *file){
+    // Todo: if file is open, close it.
+
     return 0;
+}
+
+int find_file(char* name) {
+    // Update cache if needed
+    if (rootdir_stale != 0) {
+        read_root_dir();
+    }
+
+    // Update inode cache if needed
+    if (inodes_stale != 0) {
+        read_inodes();
+    }
+
+    int file_exists = -1;
+    int32_t dirsize = inodes[0].size / 16;
+    for (int i = 0; i < dirsize; i++) {
+        if (strcmp(rootdir[i].filename, name) == 0) {
+            file_exists = rootdir[i].inode;
+        }
+    }
+    return file_exists;
 }
 
 void read_inodes() {

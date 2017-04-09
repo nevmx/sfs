@@ -5,6 +5,7 @@ void main() {
 
     mkssfs(0);
     ssfs_fopen("sfs.exe");
+    ssfs_fopen("sfs.exe");
     ssfs_fopen("main.c");
     ssfs_fopen("test.txt");
 }
