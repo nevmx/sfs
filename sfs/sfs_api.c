@@ -229,10 +229,34 @@ int ssfs_remove(char *file){
 
     if (file_inode_number == -1) {
         printf("File %s does not exist. Cannot remove.\n", file);
-    } else {
-        printf("File has inode #%s, deleting.\n", file_inode_number);
+        return -1;
     }
 
+    printf("File %s has inode #%i, deleting.\n", file, file_inode_number);
+
+    // First, free the inode.
+    inodes[file_inode_number].size = -1;
+
+    // Then, remove from directory.
+    int32_t dirsize = inodes[0].size / 16;
+    int rootdir_idx = -1;
+    for (int i = 0; i < dirsize; i++) {
+        if (strcmp(rootdir[i].filename, file) == 0) {
+            rootdir_idx = i;
+        }
+    }
+
+    if (rootdir_idx == -1) {
+        return -1;
+    }
+
+    // Replace the entry we need to delete with the last entry
+    if (dirsize > 1)
+        memcpy(rootdir + (rootdir_idx * 16), &rootdir[dirsize - 1], 16);
+
+    // Remove last entry by reducing directory size
+    inodes[0].size -= sizeof(direntry_t);
+    print_dir();
     return 0;
 }
 
