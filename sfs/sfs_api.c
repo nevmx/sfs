@@ -21,6 +21,11 @@ typedef struct _superblock_t {
     inode_t root;
 } superblock_t;
 
+typedef struct _direntry_t {
+    unsigned char filename[10];
+    uint8_t inode;
+}
+
 void mkssfs(int fresh){
     // If flag is not set, open an existing disk
     if (fresh == 0) {
