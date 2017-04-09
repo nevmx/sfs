@@ -32,8 +32,8 @@ uint8_t *fbm;
 inode_t *inodes;
 direntry_t *rootdir;
 
-int rootdir_stale = 1;
-int inodes_stale = 1;
+int inodes_dirty;
+int rootdir_dirty;
 
 void mkssfs(int fresh){
     // Initialize some vars used for caching
@@ -95,7 +95,7 @@ void mkssfs(int fresh){
         // Initialize all inodes
         inode_t in[N_INODES];
         in[0].size = 0;
-        in[0].direct[0] = 13;
+        in[0].direct[0] = 14;
         for (int i = 1; i < N_INODES; i++) {
             in[i].size = -1;
         }
@@ -110,7 +110,7 @@ void mkssfs(int fresh){
 
         // Create new free bitmap - all blocks are free except first 13 (inodes) and 14th (root dir)
         for (int i = 0; i < N_DATA_BLOCKS; i++) {
-            if (i < 14) {
+            if (i < 15) {
                 fbm_raw[i] = 0;
             } else {
                 fbm_raw[i] = 1;
@@ -141,21 +141,21 @@ void mkssfs(int fresh){
     memcpy(inodes, inodes_raw, sizeof(inode_t) * N_INODES);
     memcpy(fbm, fbm_raw, sizeof(uint8_t) * N_DATA_BLOCKS);
 
-    inodes_stale = 0;
-
     // Free allocated memory that is no longer needed
     free(superblock_raw);
     free(inodes_raw);
     free(fbm_raw);
 
     // print_superblock(superblock);
-    // printf("i-node 0 size: %i\n", inodes[0].size);
-    // printf("i-node 0 direct 1: %i\n", inodes[0].direct[0]);
-    // printf("i-node 0 direct 2: %i\n", inodes[0].direct[1]);
-    // printf("i-node 1 size: %i\n", inodes[1].size);
+    printf("i-node 0 size: %i\n", inodes[0].size);
+    printf("i-node 0 direct 1: %i\n", inodes[0].direct[0]);
+    printf("i-node 0 direct 2: %i\n", inodes[0].direct[1]);
+    printf("i-node 1 size: %i\n", inodes[1].size);
     // printBytes(fbm, 20);
 
+    // inodes[0].size = 48;
     read_root_dir();
+    print_dir();
 }
 int ssfs_fopen(char *name){
     print_dir();
@@ -201,6 +201,11 @@ int ssfs_fopen(char *name){
 
         // 4. Increment root dir size
         inodes[0].size += sizeof(direntry_t);
+
+        // write_inode(0);
+        // write_inode(i);
+
+        write_rootdir();
     }
 
     print_dir();
@@ -222,7 +227,7 @@ int ssfs_fread(int fileID, char *buf, int length){
     return 0;
 }
 int ssfs_remove(char *file){
-    // Todo: if file is open, close it.
+    // TODO: if file is open, close it.
 
     // First, find the file.
     int file_inode_number = find_file(file);
@@ -237,6 +242,8 @@ int ssfs_remove(char *file){
     // First, free the inode.
     inodes[file_inode_number].size = -1;
 
+    // TODO: Free all data blocks in FBM.
+
     // Then, remove from directory.
     int32_t dirsize = inodes[0].size / 16;
     int rootdir_idx = -1;
@@ -247,30 +254,27 @@ int ssfs_remove(char *file){
     }
 
     if (rootdir_idx == -1) {
+        printf("File %s does not exist in directory.\n", file);
         return -1;
     }
 
+    printf("File %s has idx %i in directory.\n", file, rootdir_idx);
+
     // Replace the entry we need to delete with the last entry
-    if (dirsize > 1)
-        memcpy(rootdir + (rootdir_idx * 16), &rootdir[dirsize - 1], 16);
+    if (dirsize > 1 && rootdir_idx < dirsize - 1) {
+        printf("Swapping %i and %i\n", rootdir_idx, dirsize -1);
+        memcpy(&rootdir[rootdir_idx], &rootdir[dirsize - 1], sizeof(direntry_t));
+    }
 
     // Remove last entry by reducing directory size
     inodes[0].size -= sizeof(direntry_t);
+    // write_inode(0);
+    write_rootdir();
     print_dir();
     return 0;
 }
 
 int find_file(char* name) {
-    // Update cache if needed
-    if (rootdir_stale != 0) {
-        read_root_dir();
-    }
-
-    // Update inode cache if needed
-    if (inodes_stale != 0) {
-        read_inodes();
-    }
-
     int file_exists = -1;
     int32_t dirsize = inodes[0].size / 16;
     for (int i = 0; i < dirsize; i++) {
@@ -294,19 +298,25 @@ void read_inodes() {
     // Copy to cache
     memcpy(inodes, inodes_raw, sizeof(inode_t) * N_INODES);
     free(inodes_raw);
+}
 
-    inodes_stale = 0;
+void write_inode(int inode_index)  {
+    int block_to_write = superblock->root.direct[inode_index / 16];
+    unsigned char raw_block[B_SIZE];
+
+    if (write_blocks(block_to_write, 1, inodes[inode_index]) != 1) {
+        printf("[write_inodes] Write error.\n");
+    }
+
+    printf("Wrote inode %i to block %i\n", inode_index, block_to_write);
+    return;
 }
 
 void read_root_dir() {
-    if (inodes_stale == 1) {
-        read_inodes();
-    }
-
     // Number of files in root directory
     int32_t dirsize = inodes[0].size / 16;
     if (dirsize < 1) {
-        rootdir_stale = 0;
+        printf("Empty directory - not reading.\n");
         return;
     }
 
@@ -328,9 +338,10 @@ void read_root_dir() {
     int read_blocks_count = 0;
     int32_t current_data_block = inodes[0].direct[0];
 
+    printf("[read_rootdir] Reading from block %i.\n", current_data_block);
     while (read_blocks_count < blocks_to_read) {
         // Read a block
-        printf("Reading block %i\n", current_data_block);
+        // printf("Reading block %i\n", current_data_block);
         read_blocks(current_data_block, 1, read_blocks_raw[read_blocks_count++]);
         current_data_block = inodes[0].direct[read_blocks_count];
     }
@@ -343,16 +354,27 @@ void read_root_dir() {
             read_entries++;
         }
     }
+}
 
-    rootdir_stale = 0;
+void write_rootdir() {
+    // if (rootdir_dirty == 0) {
+    //     printf("[write_rootdir] Nothing to be written.\n");
+    //     return;
+    // }
+
+    int32_t dirsize = inodes[0].size / 16;
+    unsigned char rootdir_raw[1024];
+    memcpy(rootdir_raw, rootdir, dirsize * sizeof(direntry_t));
+
+    printf("[write_rootdir] Writing rootdir to block %i.\n", inodes[0].direct[0]);
+    if (write_blocks(inodes[0].direct[0], 1, rootdir_raw) != 1) {
+        printf("[write_rootdir] Write error.\n");
+        return;
+    }
+    rootdir_dirty = 0;
 }
 
 void print_dir() {
-    // Update cache if needed
-    if (rootdir_stale != 0) {
-        read_root_dir();
-    }
-
     // Number of files in root directory
     int32_t dirsize = inodes[0].size / 16;
     if (dirsize < 1) {
