@@ -224,6 +224,15 @@ int ssfs_fread(int fileID, char *buf, int length){
 int ssfs_remove(char *file){
     // Todo: if file is open, close it.
 
+    // First, find the file.
+    int file_inode_number = find_file(file);
+
+    if (file_inode_number == -1) {
+        printf("File %s does not exist. Cannot remove.\n", file);
+    } else {
+        printf("File has inode #%s, deleting.\n", file_inode_number);
+    }
+
     return 0;
 }
 
