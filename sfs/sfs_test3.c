@@ -3,5 +3,5 @@
 void main() {
     printf("%s", "- Test 3 -\n");
 
-    mkssfs(1);
+    mkssfs(0);
 }

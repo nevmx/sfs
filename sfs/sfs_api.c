@@ -91,8 +91,8 @@ void mkssfs(int fresh){
 
         // Initialize all inodes
         inode_t in[N_INODES];
-        in[0].size = 0;
-        in[0].direct[0] = 14;
+        in[0].size = 32;
+        in[0].direct[0] = 13;
         for (int i = 1; i < N_INODES; i++) {
             in[i].size = -1;
         }
@@ -114,6 +114,19 @@ void mkssfs(int fresh){
             }
         }
 
+        // DEBUG
+        direntry_t direntry[2];
+        char filename[7] = "main.c";
+        (void)strncpy(direntry[0].filename, filename, 7);
+        direntry[0].inode = 55;
+
+        char filename2[7] = "sfs.exe";
+        (void)strncpy(direntry[1].filename, filename2, 7);
+        direntry[1].inode = 56;
+
+        unsigned char rootdir_raw[32];
+        memcpy(rootdir_raw, &direntry, 2 * sizeof(direntry_t));
+
         // Initialize disk and write superblock, inodes and FBM
         if (init_fresh_disk(DISK_NAME, B_SIZE, N_DATA_BLOCKS + 2) != 0) {
             printf("%s", "Disk init error.\n");
@@ -125,6 +138,10 @@ void mkssfs(int fresh){
         }
         if (write_blocks(1, 13, inodes_raw) != 13) {
             printf("%s", "I-node write error.\n");
+            return;
+        }
+        if (write_blocks(13, 1, rootdir_raw) != 1) {
+            printf("%s", "Root dir write error.\n");
             return;
         }
         if (write_blocks(N_DATA_BLOCKS + 1, 1, fbm_raw) != 1) {
@@ -143,12 +160,14 @@ void mkssfs(int fresh){
     free(inodes_raw);
     free(fbm_raw);
 
-    print_superblock(superblock);
-    printf("i-node 0 size: %i\n", inodes[0].size);
-    printf("i-node 0 direct 1: %i\n", inodes[0].direct[0]);
-    printf("i-node 0 direct 2: %i\n", inodes[0].direct[1]);
-    printf("i-node 1 size: %i\n", inodes[1].size);
-    printBytes(fbm, 20);
+    // print_superblock(superblock);
+    // printf("i-node 0 size: %i\n", inodes[0].size);
+    // printf("i-node 0 direct 1: %i\n", inodes[0].direct[0]);
+    // printf("i-node 0 direct 2: %i\n", inodes[0].direct[1]);
+    // printf("i-node 1 size: %i\n", inodes[1].size);
+    // printBytes(fbm, 20);
+
+    read_root_dir();
 }
 int ssfs_fopen(char *name){
     return 0;
@@ -170,6 +189,64 @@ int ssfs_fread(int fileID, char *buf, int length){
 }
 int ssfs_remove(char *file){
     return 0;
+}
+
+void read_root_dir() {
+    // Number of files in root directory
+    int32_t dirsize = inodes[0].size / 16;
+    if (dirsize < 1) {
+        return;
+    }
+
+    // Number of blocks to read - 64 entries per block
+    int blocks_to_read = dirsize / 64;
+    if (dirsize % 64 != 0) {
+        blocks_to_read++;
+    }
+
+    printf("Blocks to read: %i\n", blocks_to_read);
+
+    // Allocate memory for root dir
+    free(rootdir);
+    rootdir = calloc(dirsize, sizeof(direntry_t));
+
+    // Variable to hold read blocks from disk
+    unsigned char read_blocks_raw[blocks_to_read][B_SIZE];
+
+    int read_blocks_count = 0;
+    int32_t current_data_block = inodes[0].direct[0];
+
+    while (read_blocks_count < blocks_to_read) {
+        // Read a block
+        printf("Reading block %i\n", current_data_block);
+        read_blocks(current_data_block, 1, read_blocks_raw[read_blocks_count++]);
+        current_data_block = inodes[0].direct[read_blocks_count];
+    }
+
+    int read_entries = 0;
+    // // Interpret data as directory entries
+    for (int i = 0; i < blocks_to_read; i++) {
+        for (int j = 0; j < 64 && read_entries < dirsize; j++) {
+            memcpy(rootdir + read_entries, read_blocks_raw[i] + (j * sizeof(direntry_t)), sizeof(direntry_t));
+            read_entries++;
+        }
+    }
+
+    print_dir();
+}
+
+void print_dir() {
+    // Number of files in root directory
+    int32_t dirsize = inodes[0].size / 16;
+    if (dirsize < 1) {
+        return;
+    }
+
+    printf("Directory Listing:\n");
+
+    for (int i = 0; i < dirsize; i++) {
+        printf(" - %s, %i\n", rootdir[i].filename, rootdir[i].inode);
+    }
 }
 
 void printBytes(unsigned char* data, int len) {
