@@ -85,8 +85,6 @@ void mkssfs(int fresh){
             fbm_raw[i] = 1;
         }
 
-        fbm_raw[1023] = 3;
-
         // Initialize disk and write superblock and FBM
         if (init_fresh_disk(DISK_NAME, B_SIZE, N_DATA_BLOCKS + 2) != 0) {
             printf("%s", "Disk init error.\n");
