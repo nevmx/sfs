@@ -9,9 +9,9 @@
 #define N_INODES 200
 
 typedef struct _inode_t {
-    uint32_t size;
-    uint32_t direct[14];
-    uint32_t indirect;
+    int32_t size;
+    int32_t direct[14];
+    int32_t indirect;
 } inode_t;
 
 typedef struct _superblock_t {
@@ -30,6 +30,7 @@ typedef struct _direntry_t {
 superblock_t *superblock;
 uint8_t *fbm;
 inode_t *inodes;
+direntry_t *rootdir;
 
 void mkssfs(int fresh){
     // Initialize some vars used for caching
@@ -75,6 +76,7 @@ void mkssfs(int fresh){
         for (int i = 0; i < 13; i++) {
             root.direct[i] = i + 1;
         }
+        root.direct[13] = -1;
 
         // Define superblock for fresh disk
         superblock_t sb;
@@ -90,6 +92,7 @@ void mkssfs(int fresh){
         // Initialize all inodes
         inode_t in[N_INODES];
         in[0].size = 0;
+        in[0].direct[0] = 14;
         for (int i = 1; i < N_INODES; i++) {
             in[i].size = -1;
         }
@@ -102,9 +105,9 @@ void mkssfs(int fresh){
             superblock_raw[i] = 0;
         }
 
-        // Create new free bitmap - all blocks are free except first 13 (inodes)
+        // Create new free bitmap - all blocks are free except first 13 (inodes) and 14th (root dir)
         for (int i = 0; i < N_DATA_BLOCKS; i++) {
-            if (i < 13) {
+            if (i < 14) {
                 fbm_raw[i] = 0;
             } else {
                 fbm_raw[i] = 1;
@@ -140,7 +143,12 @@ void mkssfs(int fresh){
     free(inodes_raw);
     free(fbm_raw);
 
-    printf("Size: %i\n", inodes[1].size);
+    print_superblock(superblock);
+    printf("i-node 0 size: %i\n", inodes[0].size);
+    printf("i-node 0 direct 1: %i\n", inodes[0].direct[0]);
+    printf("i-node 0 direct 2: %i\n", inodes[0].direct[1]);
+    printf("i-node 1 size: %i\n", inodes[1].size);
+    printBytes(fbm, 20);
 }
 int ssfs_fopen(char *name){
     return 0;
@@ -175,4 +183,8 @@ void print_superblock(superblock_t *sb) {
     printf("BSize: %i\n", sb->bsize);
     printf("N of Blocks: %i\n", sb->n_blocks);
     printf("N of i-nodes: %i\n", sb->n_inodes);
+    printf("J-node: Size: %i\n", sb->root.size);
+    for (int i = 0; i < 14; i++) {
+        printf("        Direct: %i\n", sb->root.direct[i]);
+    }
 }
