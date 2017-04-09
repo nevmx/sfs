@@ -32,6 +32,9 @@ uint8_t *fbm;
 inode_t *inodes;
 direntry_t *rootdir;
 
+int rootdir_stale = 1;
+int inodes_stale = 1;
+
 void mkssfs(int fresh){
     // Initialize some vars used for caching
     superblock = (void*)malloc(sizeof(superblock_t));
@@ -91,7 +94,7 @@ void mkssfs(int fresh){
 
         // Initialize all inodes
         inode_t in[N_INODES];
-        in[0].size = 32;
+        in[0].size = 0;
         in[0].direct[0] = 13;
         for (int i = 1; i < N_INODES; i++) {
             in[i].size = -1;
@@ -114,19 +117,6 @@ void mkssfs(int fresh){
             }
         }
 
-        // DEBUG
-        direntry_t direntry[2];
-        char filename[7] = "main.c";
-        (void)strncpy(direntry[0].filename, filename, 7);
-        direntry[0].inode = 55;
-
-        char filename2[7] = "sfs.exe";
-        (void)strncpy(direntry[1].filename, filename2, 7);
-        direntry[1].inode = 56;
-
-        unsigned char rootdir_raw[32];
-        memcpy(rootdir_raw, &direntry, 2 * sizeof(direntry_t));
-
         // Initialize disk and write superblock, inodes and FBM
         if (init_fresh_disk(DISK_NAME, B_SIZE, N_DATA_BLOCKS + 2) != 0) {
             printf("%s", "Disk init error.\n");
@@ -140,10 +130,6 @@ void mkssfs(int fresh){
             printf("%s", "I-node write error.\n");
             return;
         }
-        if (write_blocks(13, 1, rootdir_raw) != 1) {
-            printf("%s", "Root dir write error.\n");
-            return;
-        }
         if (write_blocks(N_DATA_BLOCKS + 1, 1, fbm_raw) != 1) {
             printf("%s", "FBM write error.\n");
             return;
@@ -154,6 +140,8 @@ void mkssfs(int fresh){
     memcpy(superblock, superblock_raw, sizeof(superblock_t));
     memcpy(inodes, inodes_raw, sizeof(inode_t) * N_INODES);
     memcpy(fbm, fbm_raw, sizeof(uint8_t) * N_DATA_BLOCKS);
+
+    inodes_stale = 0;
 
     // Free allocated memory that is no longer needed
     free(superblock_raw);
@@ -170,6 +158,66 @@ void mkssfs(int fresh){
     read_root_dir();
 }
 int ssfs_fopen(char *name){
+    print_dir();
+
+    // Update cache if needed
+    if (rootdir_stale != 0) {
+        read_root_dir();
+    }
+
+    // Update inode cache if needed
+    if (inodes_stale != 0) {
+        read_inodes();
+    }
+
+    // Does the file already exist?
+    int file_exists = 0;
+    int32_t dirsize = inodes[0].size / 16;
+    for (int i = 0; i < dirsize; i++) {
+        if (strcmp(rootdir[i].filename, name) == 0) {
+            file_exists = 1;
+        }
+    }
+
+    if (file_exists == 1) {
+        printf("File %s exists already, will be opened.\n", name);
+    } else {
+        printf("File %s does not exist, will be created.\n", name);
+    }
+
+    // File does not exist, create it
+    if (file_exists == 0) {
+        // 1. Find an empty i-node
+        inode_t *free_inode = NULL;
+
+        int i;
+        for (i = 0; i < N_INODES; i++) {
+            if (inodes[i].size == -1) {
+                free_inode = &inodes[i];
+                break;
+            }
+        }
+
+        if (free_inode == NULL) {
+            printf("No more empty inodes!\n");
+            return;
+        } else {
+            printf("Using inode #%i\n", i);
+        }
+
+        // 2. Set inode size to 0
+        free_inode->size = 0;
+
+        // 3. Add to root directory
+        rootdir = (void*)realloc(rootdir, (dirsize + 1) * sizeof(direntry_t));
+        strncpy(rootdir[dirsize].filename, name, 15);
+        rootdir[dirsize].inode = i;
+
+        // 4. Increment root dir size
+        inodes[0].size += sizeof(direntry_t);
+    }
+
+    print_dir();
     return 0;
 }
 int ssfs_fclose(int fileID){
@@ -191,10 +239,32 @@ int ssfs_remove(char *file){
     return 0;
 }
 
+void read_inodes() {
+    // Raw data for inodes
+    unsigned char *inodes_raw = (void*)calloc(B_SIZE * 13, sizeof(unsigned char));
+
+    // Read inodes
+    if (read_blocks(1, 13, inodes_raw) != 13) {
+        printf("%s", "I-node read error.\n");
+        return;
+    }
+
+    // Copy to cache
+    memcpy(inodes, inodes_raw, sizeof(inode_t) * N_INODES);
+    free(inodes_raw);
+
+    inodes_stale = 0;
+}
+
 void read_root_dir() {
+    if (inodes_stale == 1) {
+        read_inodes();
+    }
+
     // Number of files in root directory
     int32_t dirsize = inodes[0].size / 16;
     if (dirsize < 1) {
+        rootdir_stale = 0;
         return;
     }
 
@@ -224,7 +294,7 @@ void read_root_dir() {
     }
 
     int read_entries = 0;
-    // // Interpret data as directory entries
+    // Interpret data as directory entries
     for (int i = 0; i < blocks_to_read; i++) {
         for (int j = 0; j < 64 && read_entries < dirsize; j++) {
             memcpy(rootdir + read_entries, read_blocks_raw[i] + (j * sizeof(direntry_t)), sizeof(direntry_t));
@@ -232,13 +302,19 @@ void read_root_dir() {
         }
     }
 
-    print_dir();
+    rootdir_stale = 0;
 }
 
 void print_dir() {
+    // Update cache if needed
+    if (rootdir_stale != 0) {
+        read_root_dir();
+    }
+
     // Number of files in root directory
     int32_t dirsize = inodes[0].size / 16;
     if (dirsize < 1) {
+        printf("Empty directory.\n");
         return;
     }
 
